@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>360° 3D Human Skeleton Annotator — ROW-472</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#030310;color:#dde;font-family:'SF Mono','Courier New',monospace;height:100vh;display:flex;flex-direction:column;overflow:hidden;font-size:11px}
+
+/* TOP BAR */
+#topbar{background:#080820;border-bottom:1px solid #1a1a44;padding:6px 12px;display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap}
+#topbar h1{font-size:13px;font-weight:bold;color:#00e5ff;letter-spacing:1px;white-space:nowrap}
+.sep{width:1px;height:20px;background:#223;flex-shrink:0}
+.sec-label{font-size:9px;color:#445;letter-spacing:1px;white-space:nowrap}
+.pose-btn,.deg-btn,.ctrl-btn{padding:3px 8px;font-size:10px;cursor:pointer;border:1px solid #223;border-radius:4px;font-family:inherit;transition:all .15s;user-select:none;white-space:nowrap}
+.pose-btn{background:#0d1122;color:#88aacc}
+.pose-btn:hover{background:#162040;border-color:#4488bb}
+.pose-btn.active{background:#162a50;border-color:#4499ff;color:#aaddff}
+.deg-btn{background:#0d1822;color:#778866}
+.deg-btn:hover{background:#162040}
+.deg-btn.special{color:#ccaa44;border-color:#443300}
+.deg-btn.special:hover{background:#1a1400;border-color:#886600}
+.deg-btn.active{background:#1a1400;border-color:#ccaa44;color:#ffdd66}
+.ctrl-btn{background:#0c0c22;color:#aab;border-color:#222}
+.ctrl-btn:hover{background:#141430}
+.ctrl-btn.on{background:#1a2a4a;border-color:#3366aa;color:#7af}
+.ctrl-btn.hint{color:#cc99ff;border-color:#446}
+.ctrl-btn.danger{color:#cc7755}
+#angledisp{font-size:10px;color:#4488aa;font-family:inherit;white-space:nowrap}
+
+/* MAIN AREA */
+#main{flex:1;display:flex;overflow:hidden;min-height:0}
+
+/* LEFT: KP list */
+#left{width:190px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid #1a1a3a;background:#060616}
+#lhdr{padding:8px 10px;background:#09091f;border-bottom:1px solid #1a1a3a;flex-shrink:0}
+#kplist{flex:1;overflow-y:auto}
+.kpr{display:flex;align-items:center;padding:4px 8px;cursor:pointer;border-left:3px solid transparent;border-bottom:1px solid #0d0d1e;transition:background .1s}
+.kpr:hover{background:#0c1028}
+.kpr.sel{background:#0d1035;border-left-color:#00e5ff!important}
+.badge{width:20px;height:20px;border-radius:50%;flex-shrink:0;margin-right:6px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:bold;background:#111;color:#445;border:1.5px solid #222;transition:all .2s}
+.badge.ok{background:#061a0c;color:#44ff88;border-color:#44ff88}
+.badge.err{background:#1a060a;color:#ff5566;border-color:#ff4466}
+
+/* CENTER: 3D view */
+#center{flex:1;display:flex;flex-direction:column;min-width:0}
+#mount{flex:1;cursor:crosshair;position:relative;overflow:hidden}
+#mount canvas{display:block;width:100%;height:100%}
+#overlay{position:absolute;top:8px;right:10px;background:rgba(3,3,16,.88);border:1px solid #1a1a44;border-radius:7px;padding:7px 10px;font-size:9px;line-height:2;pointer-events:none;z-index:5}
+#instruct{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);background:rgba(3,3,16,.75);padding:4px 14px;border-radius:20px;font-size:9px;color:#667788;pointer-events:none;white-space:nowrap;border:1px solid #1a1a44;z-index:5}
+#feedback{flex-shrink:0;min-height:66px;background:#050510;border-top:2px solid #1a1a3a;padding:9px 14px;display:flex;align-items:center;gap:12px;transition:background .3s}
+
+/* RIGHT: Score */
+#right{width:148px;flex-shrink:0;background:#060616;border-left:1px solid #1a1a3a;padding:10px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+.pbar{height:4px;background:#111;border-radius:2px;overflow:hidden;margin-bottom:3px}
+.pfill{height:100%;border-radius:2px;transition:width .4s}
+.regrow{display:flex;justify-content:space-between;padding:2px 5px;border-radius:3px;cursor:pointer;margin-bottom:2px;border:1px solid #0d0d1e;transition:background .15s}
+.regrow:hover{background:#0d0d22}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <h1>360° SKELETON ANNOTATOR</h1>
+  <div class="sep"></div>
+
+  <span class="sec-label">POSE</span>
+  <button class="pose-btn active" onclick="switchPose('standing')" id="pb-standing">🧍 Standing</button>
+  <button class="pose-btn" onclick="switchPose('sitting')" id="pb-sitting">🪑 Sitting</button>
+  <button class="pose-btn" onclick="switchPose('lying')" id="pb-lying">🛌 Lying</button>
+  <button class="pose-btn" onclick="switchPose('running')" id="pb-running">🏃 Running</button>
+
+  <div class="sep"></div>
+
+  <span class="sec-label">VIEW °</span>
+  <button class="deg-btn" onclick="snapAngle(0)">0° Front</button>
+  <button class="deg-btn special" id="db-45" onclick="snapAngle(45)">45°</button>
+  <button class="deg-btn" onclick="snapAngle(90)">90°</button>
+  <button class="deg-btn special" id="db-135" onclick="snapAngle(135)">135°</button>
+  <button class="deg-btn" onclick="snapAngle(180)">180° Back</button>
+  <button class="deg-btn special" id="db-225" onclick="snapAngle(225)">225°</button>
+  <button class="deg-btn" onclick="snapAngle(270)">270°</button>
+  <button class="deg-btn special" id="db-315" onclick="snapAngle(315)">315°</button>
+
+  <div class="sep"></div>
+
+  <button class="ctrl-btn on" id="btnRot" onclick="toggleRot()">⟳ Rotate</button>
+  <button class="ctrl-btn hint" id="btnHint">👁 Hint</button>
+  <button class="ctrl-btn" onclick="prevKP()">← KP</button>
+  <button class="ctrl-btn" onclick="nextKP()">KP →</button>
+  <button class="ctrl-btn danger" onclick="resetAll()">↺ Reset</button>
+  <div id="angledisp">View: 0°</div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+  <!-- LEFT: KP list -->
+  <div id="left">
+    <div id="lhdr">
+      <div style="font-weight:bold;font-size:10px;color:#00e5ff;letter-spacing:2px;margin-bottom:4px">42 KEYPOINTS</div>
+      <div style="display:flex;gap:9px">
+        <span id="cnt-ok" style="color:#44ff88;font-size:10px">✓ 0</span>
+        <span id="cnt-err" style="color:#ff4466;font-size:10px">✗ 0</span>
+        <span id="cnt-pend" style="color:#445566;font-size:10px">○ 42</span>
+      </div>
+    </div>
+    <div id="kplist"></div>
+  </div>
+
+  <!-- CENTER: 3D + feedback -->
+  <div id="center">
+    <div id="mount">
+      <div id="overlay">
+        <div><span style="color:#44ff88">●</span> Correct placement</div>
+        <div><span style="color:#ff3344">●</span> Wrong placement</div>
+        <div><span style="color:#ffee00">●</span> True GT position</div>
+        <div><span style="color:#ffee44">○</span> Selected KP (pulsing)</div>
+        <div style="border-top:1px solid #1a1a44;margin-top:3px;padding-top:3px;color:#335">
+          <div><span style="color:#ffcc44">◆</span> 45/135/225/315° markers</div>
+          <div><span style="color:#336655">◆</span> 0/90/180/270° markers</div>
+        </div>
+      </div>
+      <div id="instruct">Drag to rotate · Click to place · Degree ring shows viewing angle</div>
+    </div>
+
+    <div id="feedback">
+      <div style="color:#2a2a4a;font-size:10px">Select a keypoint → rotate skeleton to desired angle → click to place mark → get instant green / red feedback</div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Score -->
+  <div id="right">
+    <div style="font-weight:bold;font-size:9px;color:#00e5ff;letter-spacing:2px">SCORE</div>
+    <div style="text-align:center;background:#080820;border-radius:7px;padding:8px 0;border:1px solid #111">
+      <div id="sc-ok" style="font-size:38px;font-weight:bold;color:#44ff88;line-height:1">0</div>
+      <div style="font-size:8px;color:#446655">CORRECT</div>
+      <div id="sc-err" style="font-size:26px;font-weight:bold;color:#ff4466;line-height:1;margin-top:5px">0</div>
+      <div style="font-size:8px;color:#664455">WRONG</div>
+      <div id="sc-tot" style="font-size:11px;color:#334;margin-top:5px">0 / 42</div>
+    </div>
+    <div>
+      <div style="font-size:8px;color:#334455;margin-bottom:3px">ACCURACY <span id="sc-acc">–</span></div>
+      <div class="pbar"><div class="pfill" id="pok" style="background:linear-gradient(90deg,#00ff88,#00cc66);width:0%"></div></div>
+      <div class="pbar"><div class="pfill" id="ptot" style="background:#334;width:0%"></div></div>
+    </div>
+    <div style="border-top:1px solid #1a1a3a;padding-top:7px">
+      <div style="font-size:8px;color:#334455;margin-bottom:4px;letter-spacing:1px">BY REGION</div>
+      <div id="reg-breakdown"></div>
+    </div>
+    <div style="border-top:1px solid #1a1a3a;padding-top:7px;font-size:8px;color:#334;line-height:1.8;margin-top:auto">
+      <div style="color:#44ff88">≤ 0.008 — visible</div>
+      <div style="color:#cc88ff">≤ 0.016 — hidden</div>
+      <div style="color:#223;margin-top:4px">MAE = px dist<br>÷ diag(W,H)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════════
+// KP METADATA (pose-independent)
+// ═══════════════════════════════════════════════════════════════════════════════
+const KP_META = [
+  {id:1, name:"Top of Head",       vis:true,  reg:"HEAD"},
+  {id:2, name:"Eye (Left)",        vis:true,  reg:"HEAD"},
+  {id:3, name:"Eye (Right)",       vis:true,  reg:"HEAD"},
+  {id:4, name:"Ear (Left)",        vis:true,  reg:"HEAD"},
+  {id:5, name:"Ear (Right)",       vis:true,  reg:"HEAD"},
+  {id:6, name:"Nose",              vis:true,  reg:"HEAD"},
+  {id:7, name:"Chin",              vis:true,  reg:"HEAD"},
+  {id:8, name:"Neck (C4)",         vis:true,  reg:"SPINE"},
+  {id:9, name:"Thoracic Kyphosis", vis:false, reg:"SPINE"},
+  {id:10,name:"TL Junction",       vis:false, reg:"SPINE"},
+  {id:11,name:"Lumbar Lordosis",   vis:false, reg:"SPINE"},
+  {id:12,name:"LS Junction",       vis:false, reg:"SPINE"},
+  {id:13,name:"Sacrum End",        vis:false, reg:"SPINE"},
+  {id:14,name:"Shoulder (Left)",   vis:true,  reg:"UPPER"},
+  {id:15,name:"Shoulder (Right)",  vis:true,  reg:"UPPER"},
+  {id:16,name:"Solar Plexus",      vis:true,  reg:"TORSO"},
+  {id:17,name:"Elbow (Left)",      vis:true,  reg:"UPPER"},
+  {id:18,name:"Elbow (Right)",     vis:true,  reg:"UPPER"},
+  {id:19,name:"Wrist (Left)",      vis:true,  reg:"UPPER"},
+  {id:20,name:"Wrist (Right)",     vis:true,  reg:"UPPER"},
+  {id:21,name:"Thumb Tip (L)",     vis:true,  reg:"HAND"},
+  {id:22,name:"Thumb Tip (R)",     vis:true,  reg:"HAND"},
+  {id:23,name:"Index Tip (L)",     vis:true,  reg:"HAND"},
+  {id:24,name:"Index Tip (R)",     vis:true,  reg:"HAND"},
+  {id:25,name:"Pinky Tip (L)",     vis:true,  reg:"HAND"},
+  {id:26,name:"Pinky Tip (R)",     vis:true,  reg:"HAND"},
+  {id:27,name:"MCP Index (L)",     vis:true,  reg:"HAND"},
+  {id:28,name:"MCP Index (R)",     vis:true,  reg:"HAND"},
+  {id:29,name:"MCP Pinky (L)",     vis:true,  reg:"HAND"},
+  {id:30,name:"MCP Pinky (R)",     vis:true,  reg:"HAND"},
+  {id:31,name:"Femoral Head (L)",  vis:false, reg:"LOWER"},
+  {id:32,name:"Femoral Head (R)",  vis:false, reg:"LOWER"},
+  {id:33,name:"ASIS (Left)",       vis:true,  reg:"TORSO"},
+  {id:34,name:"ASIS (Right)",      vis:true,  reg:"TORSO"},
+  {id:35,name:"Knee (Left)",       vis:true,  reg:"LOWER"},
+  {id:36,name:"Knee (Right)",      vis:true,  reg:"LOWER"},
+  {id:37,name:"Ankle (Left)",      vis:true,  reg:"LOWER"},
+  {id:38,name:"Ankle (Right)",     vis:true,  reg:"LOWER"},
+  {id:39,name:"Heel (Left)",       vis:true,  reg:"FOOT"},
+  {id:40,name:"Heel (Right)",      vis:true,  reg:"FOOT"},
+  {id:41,name:"Toe Tip (L)",       vis:true,  reg:"FOOT"},
+  {id:42,name:"Toe Tip (R)",       vis:true,  reg:"FOOT"},
+];
+
+const RCOL = {HEAD:"#ff5252",SPINE:"#ce93d8",UPPER:"#42a5f5",TORSO:"#ffb74d",HAND:"#69f0ae",LOWER:"#26c6da",FOOT:"#f48fb1"};
+const RNMS = {HEAD:"Head",SPINE:"Spine",UPPER:"Arms",TORSO:"Torso",HAND:"Hands",LOWER:"Legs",FOOT:"Feet"};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 4 POSES × 42 KEYPOINTS  (indices 0-based = KP_id - 1)
+// ═══════════════════════════════════════════════════════════════════════════════
+const POSES = {
+  standing:[
+    [0,1.800,0],[.058,1.720,.080],[-.058,1.720,.080],[.105,1.700,0],[-.105,1.700,0],[0,1.680,.105],[0,1.600,.065],
+    [0,1.520,0],[0,1.340,-.065],[0,1.195,-.030],[0,1.080,.042],[0,.978,-.022],[0,.900,-.055],
+    [.220,1.480,0],[-.220,1.480,0],[0,1.320,.050],
+    [.330,1.160,0],[-.330,1.160,0],[.385,.900,0],[-.385,.900,0],
+    [.422,.832,.042],[-.422,.832,.042],[.402,.788,.052],[-.402,.788,.052],
+    [.362,.798,.018],[-.362,.798,.018],[.402,.858,.030],[-.402,.858,.030],[.372,.858,.010],[-.372,.858,.010],
+    [.102,.918,0],[-.102,.918,0],[.142,.978,.062],[-.142,.978,.062],
+    [.102,.582,0],[-.102,.582,0],[.090,.118,0],[-.090,.118,0],
+    [.082,.040,-.102],[-.082,.040,-.102],[.082,.018,.122],[-.082,.018,.122]
+  ],
+  sitting:[
+    [0,1.220,0],[.058,1.180,.080],[-.058,1.180,.080],[.105,1.160,0],[-.105,1.160,0],[0,1.160,.105],[0,1.120,.065],
+    [0,1.040,0],[0,.880,-.060],[0,.760,-.030],[0,.640,.040],[0,.540,-.020],[0,.460,-.050],
+    [.220,1.020,0],[-.220,1.020,0],[0,.880,.050],
+    [.300,.800,.180],[-.300,.800,.180],[.320,.580,.360],[-.320,.580,.360],
+    [.380,.540,.400],[-.380,.540,.400],[.360,.520,.440],[-.360,.520,.440],
+    [.315,.520,.420],[-.315,.520,.420],[.358,.550,.400],[-.358,.550,.400],[.330,.550,.390],[-.330,.550,.390],
+    [.102,.460,0],[-.102,.460,0],[.142,.480,.060],[-.142,.480,.060],
+    [.102,.460,.440],[-.102,.460,.440],[.090,.080,.440],[-.090,.080,.440],
+    [.082,.010,.340],[-.082,.010,.340],[.082,.010,.560],[-.082,.010,.560]
+  ],
+  lying:[
+    [0,.080,-.880],[.058,.145,-.820],[-.058,.145,-.820],[.105,.070,-.800],[-.105,.070,-.800],[0,.175,-.820],[0,.120,-.780],
+    [0,.085,-.740],[0,.062,-.620],[0,.072,-.520],[0,.090,-.400],[0,.072,-.280],[0,.062,-.180],
+    [.220,.072,-.700],[-.220,.072,-.700],[0,.162,-.580],
+    [.360,.062,-.500],[-.360,.062,-.500],[.440,.052,-.180],[-.440,.052,-.180],
+    [.462,.042,-.120],[-.462,.042,-.120],[.462,.042,-.080],[-.462,.042,-.080],
+    [.450,.042,-.100],[-.450,.042,-.100],[.455,.048,-.110],[-.455,.048,-.110],[.450,.048,-.122],[-.450,.048,-.122],
+    [.102,.082,-.160],[-.102,.082,-.160],[.142,.145,-.160],[-.142,.145,-.160],
+    [.102,.072,.260],[-.102,.072,.260],[.090,.072,.680],[-.090,.072,.680],
+    [.082,.012,.780],[-.082,.012,.780],[.082,.125,.900],[-.082,.125,.900]
+  ],
+  running:[
+    [0,1.600,.040],[.058,1.545,.100],[-.058,1.545,.100],[.105,1.525,.060],[-.105,1.525,.060],[0,1.525,.130],[0,1.500,.100],
+    [0,1.400,.060],[0,1.260,-.050],[0,1.160,.000],[0,1.060,.040],[0,.960,-.020],[0,.880,-.040],
+    [.210,1.380,.040],[-.210,1.380,.040],[0,1.240,.060],
+    [.245,1.140,.185],[-.245,1.140,-.225],[.205,.925,.345],[-.205,.925,-.425],
+    [.225,.882,.385],[-.225,.882,-.465],[.225,.860,.405],[-.225,.860,-.485],
+    [.205,.880,.375],[-.205,.880,-.455],[.218,.895,.375],[-.218,.895,-.462],[.208,.895,.362],[-.208,.895,-.468],
+    [.102,.900,.080],[-.102,.900,-.080],[.140,.920,.100],[-.140,.920,-.060],
+    [.100,.780,.300],[-.100,.600,-.280],[.090,.520,.425],[-.090,.162,-.525],
+    [.082,.442,.362],[-.082,.105,-.622],[.082,.482,.505],[-.082,.245,-.442]
+  ]
+};
+
+// Skeleton bone connections (KP id pairs, 1-based)
+const BONES=[
+  [1,2],[1,3],[1,4],[1,5],[2,6],[3,6],[4,7],[5,7],[6,7],[7,8],
+  [8,9],[9,10],[10,11],[11,12],[12,13],
+  [8,14],[8,15],[14,15],
+  [14,17],[17,19],[15,18],[18,20],
+  [19,21],[19,27],[27,23],[19,29],[29,25],
+  [20,22],[20,28],[28,24],[20,30],[30,26],
+  [14,16],[15,16],[16,33],[16,34],[33,34],
+  [33,31],[34,32],[31,32],
+  [31,35],[35,37],[37,39],[37,41],[39,41],
+  [32,36],[36,38],[38,40],[38,42],[40,42]
+];
+
+// Skin segments [kpA_id, kpB_id, radiusAtA, radiusAtB]
+const SKIN_SEGS=[
+  [7,8,.042,.040],       // chin → neck
+  [8,16,.080,.074],      // neck → solar plexus (front chest)
+  [16,12,.074,.065],     // solar plexus → LS (belly)
+  [12,13,.062,.056],     // LS → sacrum
+  [14,15,.056,.056],     // shoulder bar (chest width)
+  [14,33,.050,.046],     // L shoulder → L ASIS (left side torso)
+  [15,34,.050,.046],     // R shoulder → R ASIS (right side torso)
+  [33,34,.052,.052],     // pelvis bar
+  [14,17,.044,.038],     // L upper arm
+  [17,19,.036,.028],     // L forearm
+  [15,18,.044,.038],     // R upper arm
+  [18,20,.036,.028],     // R forearm
+  [31,35,.066,.054],     // L thigh
+  [35,37,.050,.030],     // L shin
+  [37,41,.026,.020],     // L foot top
+  [39,41,.022,.016],     // L heel → toe (foot sole)
+  [32,36,.066,.054],     // R thigh
+  [36,38,.050,.030],     // R shin
+  [38,42,.026,.020],     // R foot top
+  [40,42,.022,.016],     // R heel → toe
+];
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════════════════
+let selKP=1, results={}, autoRot=true, showHint=false, curPose='standing';
+let scene,camera,renderer,skg,placed;
+let gtSpheres={}, hlMesh, rayPlane;
+let rotY=0, isDrag=false, dragMoved=false, prevX=0;
+let placedMeshes={};
+let skinGroup, boneGroup, dotGroup, labelGroup;
+let snapTarget=null, snapSpeed=0.08;
+
+function kp(i){return KP_META[i-1]}
+function pos(pose,id){return POSES[pose][id-1]}
+function posV(pose,id){const p=pos(pose,id);return new THREE.Vector3(p[0],p[1],p[2])}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// THREE.JS INIT
+// ═══════════════════════════════════════════════════════════════════════════════
+function init3D(){
+  const mount=document.getElementById('mount');
+  const W=mount.clientWidth,H=mount.clientHeight;
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x030310);
+  scene.fog=new THREE.FogExp2(0x030310,.10);
+  camera=new THREE.PerspectiveCamera(42,W/H,.01,100);
+  camera.position.set(0,.85,3.40);
+  camera.lookAt(0,.85,0);
+  renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(W,H);
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.sortObjects=true;
+  mount.appendChild(renderer.domElement);
+
+  // Lighting for skin
+  scene.add(new THREE.AmbientLight(0x223355,5));
+  const sun=new THREE.DirectionalLight(0xffeedd,4);
+  sun.position.set(2,5,3); scene.add(sun);
+  const fill=new THREE.DirectionalLight(0x3355aa,2);
+  fill.position.set(-3,2,-2); scene.add(fill);
+  const rim=new THREE.PointLight(0x00ccff,3,10);
+  rim.position.set(0,3.5,-2); scene.add(rim);
+  const bot=new THREE.PointLight(0xff8866,1.5,6);
+  bot.position.set(0,-.5,1); scene.add(bot);
+
+  // Floor
+  const grid=new THREE.GridHelper(6,24,0x1a1a44,0x0d0d22);
+  grid.position.y=-.002; scene.add(grid);
+  const disc=new THREE.Mesh(
+    new THREE.CircleGeometry(.80,32),
+    new THREE.MeshBasicMaterial({color:0x001133,transparent:true,opacity:.35,side:THREE.DoubleSide})
+  );
+  disc.rotation.x=-Math.PI/2; disc.position.y=.001; scene.add(disc);
+
+  // Skeleton group
+  skg=new THREE.Group(); scene.add(skg);
+  skinGroup=new THREE.Group(); skg.add(skinGroup);
+  boneGroup=new THREE.Group(); skg.add(boneGroup);
+  dotGroup=new THREE.Group(); skg.add(dotGroup);
+  labelGroup=new THREE.Group(); skg.add(labelGroup);
+  placed=new THREE.Group(); skg.add(placed);
+
+  // GT hints (hidden, updated per pose)
+  KP_META.forEach(kpm=>{
+    const m=new THREE.Mesh(
+      new THREE.SphereGeometry(.030,12,10),
+      new THREE.MeshBasicMaterial({color:kpm.vis?0x00ffaa:0xcc66ff,transparent:true,opacity:0,depthTest:false})
+    );
+    skg.add(m); gtSpheres[kpm.id]=m;
+  });
+
+  // Selection highlight
+  hlMesh=new THREE.Mesh(
+    new THREE.SphereGeometry(.040,16,12),
+    new THREE.MeshBasicMaterial({color:0xffee00,transparent:true,opacity:.80,depthTest:false})
+  );
+  skg.add(hlMesh);
+
+  // Invisible ray plane
+  rayPlane=new THREE.Mesh(
+    new THREE.PlaneGeometry(8,8),
+    new THREE.MeshBasicMaterial({side:THREE.DoubleSide,visible:false})
+  );
+  scene.add(rayPlane);
+
+  // Degree ring (fixed in WORLD space, not in skg)
+  buildDegreeRing();
+
+  // Build initial pose
+  buildScene(curPose);
+
+  // Resize
+  new ResizeObserver(()=>{
+    const W2=mount.clientWidth,H2=mount.clientHeight;
+    camera.aspect=W2/H2; camera.updateProjectionMatrix();
+    renderer.setSize(W2,H2);
+  }).observe(mount);
+
+  animate();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BUILD SCENE (skin + skeleton) FOR A GIVEN POSE
+// ═══════════════════════════════════════════════════════════════════════════════
+function buildScene(pose){
+  // Clear previous
+  [skinGroup,boneGroup,dotGroup,labelGroup].forEach(g=>{
+    while(g.children.length)g.remove(g.children[0]);
+  });
+
+  const pdata=POSES[pose];
+
+  // ── SKIN ──────────────────────────────────────────────────────────────────
+  const SKIN_COLOR=new THREE.Color(0xc8906a);
+  const skinMat=new THREE.MeshPhongMaterial({
+    color:SKIN_COLOR, shininess:35, transparent:true, opacity:.44,
+    side:THREE.DoubleSide, depthWrite:false
+  });
+
+  function addSeg(idA,idB,rA,rB){
+    const A=posV(pose,idA), B=posV(pose,idB);
+    const dir=B.clone().sub(A); const len=dir.length();
+    if(len<.001)return;
+    const geo=new THREE.CylinderGeometry(rA,rB,len,12,1);
+    const m=new THREE.Mesh(geo,skinMat.clone());
+    m.position.copy(A.clone().add(B).multiplyScalar(.5));
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir.normalize());
+    skinGroup.add(m);
+  }
+
+  function addSphere(idA,idB,r){
+    // Center between two points
+    const A=posV(pose,idA), B=posV(pose,idB);
+    const m=new THREE.Mesh(new THREE.SphereGeometry(r,18,14),skinMat.clone());
+    m.position.copy(A.clone().add(B).multiplyScalar(.5));
+    skinGroup.add(m);
+  }
+
+  // Head sphere (center between KP1 top-of-head and KP7 chin)
+  addSphere(1,7,.118);
+  // Neck
+  addSeg(7,8,.042,.040);
+  // Torso front column
+  addSeg(8,16,.082,.076);
+  addSeg(16,12,.076,.064);
+  addSeg(12,13,.062,.056);
+  // Torso width (horizontal bars)
+  addSeg(14,15,.058,.058);
+  addSeg(33,34,.054,.054);
+  // Torso sides (shoulder to hip)
+  addSeg(14,33,.052,.048);
+  addSeg(15,34,.052,.048);
+  // Arms
+  addSeg(14,17,.044,.038);  addSeg(17,19,.036,.028);
+  addSeg(15,18,.044,.038);  addSeg(18,20,.036,.028);
+  // Hands (small spheres at wrist)
+  {const m=new THREE.Mesh(new THREE.SphereGeometry(.040,10,8),skinMat.clone());
+   m.position.copy(posV(pose,19)); skinGroup.add(m);}
+  {const m=new THREE.Mesh(new THREE.SphereGeometry(.040,10,8),skinMat.clone());
+   m.position.copy(posV(pose,20)); skinGroup.add(m);}
+  // Thighs + shins + feet
+  addSeg(31,35,.068,.055);  addSeg(35,37,.052,.032);
+  addSeg(32,36,.068,.055);  addSeg(36,38,.052,.032);
+  addSeg(37,41,.028,.020);  addSeg(39,41,.022,.016);
+  addSeg(38,42,.028,.020);  addSeg(40,42,.022,.016);
+
+  // ── SKELETON BONES (colored lines) ─────────────────────────────────────────
+  BONES.forEach(([a,b])=>{
+    const A=posV(pose,a), B=posV(pose,b);
+    const ca=RCOL[kp(a).reg]||'#0ff', cb=RCOL[kp(b).reg]||'#0ff';
+    const col=ca===cb?ca:'#00e5ff';
+    const geo=new THREE.BufferGeometry().setFromPoints([A,B]);
+    boneGroup.add(new THREE.Line(geo,new THREE.LineBasicMaterial({color:new THREE.Color(col)})));
+  });
+
+  // ── JOINT DOTS ─────────────────────────────────────────────────────────────
+  KP_META.forEach(kpm=>{
+    const p=pos(pose,kpm.id);
+    const r=[1,6,7,8].includes(kpm.id)?.016:.010;
+    const m=new THREE.Mesh(
+      new THREE.SphereGeometry(r,8,6),
+      new THREE.MeshBasicMaterial({color:new THREE.Color(RCOL[kpm.reg])})
+    );
+    m.position.set(p[0],p[1],p[2]); dotGroup.add(m);
+    // Update GT sphere position
+    if(gtSpheres[kpm.id]) gtSpheres[kpm.id].position.set(p[0],p[1],p[2]);
+  });
+
+  // ── KP NUMBER LABELS (canvas sprites) ──────────────────────────────────────
+  KP_META.forEach(kpm=>{
+    const p=pos(pose,kpm.id);
+    const cv=document.createElement('canvas');
+    cv.width=38; cv.height=26;
+    const ctx=cv.getContext('2d');
+    ctx.fillStyle=RCOL[kpm.reg];
+    ctx.font='bold 15px Arial';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(kpm.id,19,13);
+    const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv),transparent:true,depthTest:false}));
+    spr.scale.set(.076,.052,1);
+    spr.position.set(p[0]+.04,p[1]+.026,p[2]+.04);
+    labelGroup.add(spr);
+  });
+
+  // Update placed marker positions (clear them on pose switch)
+  Object.values(placedMeshes).forEach(m=>placed.remove(m));
+  placedMeshes={};
+  results={};
+  updateUI();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DEGREE RING (world-space, does NOT rotate with skeleton)
+// ═══════════════════════════════════════════════════════════════════════════════
+function buildDegreeRing(){
+  const R=.82, Y=.022;
+  // Outer ring
+  const ring=new THREE.Mesh(
+    new THREE.TorusGeometry(R,.006,8,64),
+    new THREE.MeshBasicMaterial({color:0x223344,transparent:true,opacity:.7})
+  );
+  ring.rotation.x=Math.PI/2; ring.position.y=Y; scene.add(ring);
+
+  // Inner ring
+  const ring2=new THREE.Mesh(
+    new THREE.TorusGeometry(.30,.003,6,32),
+    new THREE.MeshBasicMaterial({color:0x112233,transparent:true,opacity:.4})
+  );
+  ring2.rotation.x=Math.PI/2; ring2.position.y=Y; scene.add(ring2);
+
+  const special=[45,135,225,315];
+  const DEGS=[0,45,90,135,180,225,270,315];
+
+  DEGS.forEach(deg=>{
+    const rad=deg*Math.PI/180;
+    const sx=Math.sin(rad)*R, sz=Math.cos(rad)*R;
+    const isSpec=special.includes(deg);
+    const col=isSpec?0xddaa22:0x226644;
+    const dimCol=isSpec?0x886611:0x113322;
+
+    // Radial line from center to ring
+    const lineGeo=new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0,Y,0),
+      new THREE.Vector3(sx,Y,sz)
+    ]);
+    scene.add(new THREE.Line(lineGeo,new THREE.LineBasicMaterial({color:dimCol})));
+
+    // Marker sphere at ring
+    const dot=new THREE.Mesh(
+      new THREE.SphereGeometry(isSpec?.016:.010,8,6),
+      new THREE.MeshBasicMaterial({color:col})
+    );
+    dot.position.set(sx,Y+.008,sz); scene.add(dot);
+
+    // Diamond marker for special angles
+    if(isSpec){
+      const diam=new THREE.Mesh(
+        new THREE.OctahedronGeometry(.022,0),
+        new THREE.MeshBasicMaterial({color:0xffcc44,transparent:true,opacity:.85})
+      );
+      diam.position.set(sx,Y+.025,sz); scene.add(diam);
+    }
+
+    // Text label sprite
+    const cv=document.createElement('canvas');
+    cv.width=100; cv.height=52;
+    const ctx=cv.getContext('2d');
+    ctx.fillStyle=isSpec?'#ffcc44':'#449966';
+    ctx.font=`bold ${isSpec?20:16}px Arial`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(deg+'°',50,26);
+    const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv),transparent:true,depthTest:false}));
+    const labelR=R+.16;
+    spr.scale.set(isSpec?.28:.22,isSpec?.14:.11,1);
+    spr.position.set(Math.sin(rad)*labelR,Y+.06,Math.cos(rad)*labelR);
+    scene.add(spr);
+
+    // Small direction arrow (pointing inward)
+    const arrowDir=new THREE.Vector3(-Math.sin(rad),0,-Math.cos(rad)).normalize();
+    const arrowGeo=new THREE.ConeGeometry(.012,.04,6);
+    const arrowM=new THREE.Mesh(arrowGeo,new THREE.MeshBasicMaterial({color:col}));
+    const arrowPos=new THREE.Vector3(Math.sin(rad)*(R-.06),Y+.008,Math.cos(rad)*(R-.06));
+    arrowM.position.copy(arrowPos);
+    arrowM.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),arrowDir);
+    scene.add(arrowM);
+  });
+
+  // Center cross
+  [0,90].forEach(deg=>{
+    const rad=deg*Math.PI/180;
+    const cGeo=new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-Math.cos(rad)*.28,Y,-Math.sin(rad)*.28),
+      new THREE.Vector3(Math.cos(rad)*.28,Y,Math.sin(rad)*.28)
+    ]);
+    scene.add(new THREE.Line(cGeo,new THREE.LineBasicMaterial({color:0x0d1a2a})));
+  });
+
+  // "FRONT" label
+  const cvF=document.createElement('canvas');
+  cvF.width=120; cvF.height=40;
+  const ctxF=cvF.getContext('2d');
+  ctxF.fillStyle='#336655'; ctxF.font='bold 16px Arial';
+  ctxF.textAlign='center'; ctxF.textBaseline='middle';
+  ctxF.fillText('FRONT',60,20);
+  const sprF=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cvF),transparent:true,depthTest:false}));
+  sprF.scale.set(.30,.10,1);
+  sprF.position.set(0,Y+.04,R+.32); scene.add(sprF);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ANIMATION LOOP
+// ═══════════════════════════════════════════════════════════════════════════════
+function animate(){
+  requestAnimationFrame(animate);
+
+  // Snap interpolation
+  if(snapTarget!==null){
+    let diff=snapTarget-rotY;
+    // Normalize diff to [-π, π]
+    while(diff>Math.PI) diff-=2*Math.PI;
+    while(diff<-Math.PI) diff+=2*Math.PI;
+    if(Math.abs(diff)<.005){rotY=snapTarget;snapTarget=null;}
+    else rotY+=diff*snapSpeed;
+  } else if(autoRot&&!isDrag){
+    rotY+=.006;
+  }
+
+  skg.rotation.y=rotY;
+
+  // Pulse highlight
+  const t=Date.now()*.0042;
+  const kpm=KP_META[selKP-1];
+  if(kpm){
+    const p=pos(curPose,kpm.id);
+    hlMesh.position.set(p[0],p[1],p[2]);
+    hlMesh.material.opacity=.28+.50*Math.sin(t);
+    hlMesh.scale.setScalar(.90+.22*Math.sin(t*1.3));
+  }
+
+  // GT hints
+  KP_META.forEach(kpm=>{
+    if(gtSpheres[kpm.id])
+      gtSpheres[kpm.id].material.opacity=(showHint&&kpm.id===selKP)?.82:0;
+  });
+
+  // Ray plane facing camera
+  rayPlane.position.set(0,.8,0);
+  rayPlane.lookAt(camera.position);
+
+  // Update angle display
+  const deg=((rotY*180/Math.PI)%360+360)%360;
+  document.getElementById('angledisp').textContent='View: '+Math.round(deg)+'°';
+
+  renderer.render(scene,camera);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// KEYPOINT PLACEMENT
+// ═══════════════════════════════════════════════════════════════════════════════
+function placeKP(clientX,clientY){
+  const canvas=renderer.domElement;
+  const rect=canvas.getBoundingClientRect();
+  const CW=rect.width,CH=rect.height;
+  const cx=clientX-rect.left,cy=clientY-rect.top;
+  const ndcX=(cx/CW)*2-1, ndcY=-(cy/CH)*2+1;
+
+  const kpm=KP_META[selKP-1];
+  const p=pos(curPose,selKP);
+
+  // Project GT point to screen
+  const gtW=new THREE.Vector3(p[0],p[1],p[2]).applyEuler(new THREE.Euler(0,rotY,0));
+  const pr=gtW.clone().project(camera);
+  const gsx=(pr.x+1)/2*CW, gsy=(-pr.y+1)/2*CH;
+  const pixDist=Math.sqrt((cx-gsx)**2+(cy-gsy)**2);
+  const diag=Math.sqrt(CW*CW+CH*CH);
+  const normDist=pixDist/diag;
+  const thresh=kpm.vis?.008:.016;
+  const ok=normDist<=thresh;
+
+  // 3D placement
+  const ray=new THREE.Raycaster();
+  ray.setFromCamera({x:ndcX,y:ndcY},camera);
+  const hits=ray.intersectObject(rayPlane);
+  if(hits.length){
+    const lpt=hits[0].point.clone().applyEuler(new THREE.Euler(0,-rotY,0));
+    ['','r','g'].forEach(pfx=>{const o=placedMeshes[pfx+selKP];if(o){placed.remove(o);delete placedMeshes[pfx+selKP];}});
+
+    const sm=new THREE.Mesh(new THREE.SphereGeometry(.026,14,12),new THREE.MeshBasicMaterial({color:ok?0x00ee55:0xff2233}));
+    sm.position.copy(lpt); placed.add(sm); placedMeshes[selKP]=sm;
+
+    const rm=new THREE.Mesh(new THREE.TorusGeometry(.032,.007,8,22),new THREE.MeshBasicMaterial({color:ok?0x44ff88:0xff6644,transparent:true,opacity:.65}));
+    rm.position.copy(lpt); placed.add(rm); placedMeshes['r'+selKP]=rm;
+
+    if(!ok){
+      const gm=new THREE.Mesh(new THREE.SphereGeometry(.030,14,12),new THREE.MeshBasicMaterial({color:0xffee00,transparent:true,opacity:.88}));
+      gm.position.set(p[0],p[1],p[2]); placed.add(gm); placedMeshes['g'+selKP]=gm;
+    }
+  }
+
+  results[selKP]={ok,normDist,px:Math.round(pixDist),diag:Math.round(diag)};
+  showFeedback(kpm,ok,normDist,thresh,Math.round(pixDist),Math.round(diag));
+  updateUI();
+  if(ok){const nxt=KP_META.find(k=>k.id>selKP&&!results[k.id]?.ok);if(nxt)setTimeout(()=>selectKP(nxt.id),850);}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// UI FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+function selectKP(id){
+  selKP=id;
+  document.querySelectorAll('.kpr').forEach(r=>r.classList.toggle('sel',parseInt(r.dataset.id)===id));
+  const kpm=KP_META[id-1];
+  document.getElementById('instruct').textContent=`Drag to rotate · Click to place  KP${id}: ${kpm.name}  |  Threshold: ${kpm.vis?'≤ 0.008 (visible)':'≤ 0.016 (hidden)'}`;
+  updateHints();
+  const row=document.querySelector(`.kpr[data-id="${id}"]`);
+  if(row) row.scrollIntoView({block:'nearest',behavior:'smooth'});
+}
+
+function updateHints(){
+  KP_META.forEach(k=>{
+    if(gtSpheres[k.id]) gtSpheres[k.id].material.opacity=(showHint&&k.id===selKP)?.82:0;
+  });
+}
+
+function showFeedback(kpm,ok,nd,thresh,px,diag){
+  const fb=document.getElementById('feedback');
+  fb.style.background=ok?'#020e06':'#0e0204';
+  fb.style.borderTopColor=ok?'#00aa44':'#cc0022';
+  fb.innerHTML=`
+    <div style="width:46px;height:46px;border-radius:50%;flex-shrink:0;background:${ok?'#001a0a':'#1a0004'};border:3px solid ${ok?'#00ff66':'#ff2244'};display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:bold;color:${ok?'#44ff88':'#ff4466'}">${ok?'✓':'✗'}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:bold;font-size:13px;color:${ok?'#44ff88':'#ff4466'};margin-bottom:4px">KP${kpm.id}: ${kpm.name} — ${ok?'CORRECT ✓  Within threshold':'WRONG ✗  Outside threshold'}</div>
+      <div style="font-size:10px;color:#778;display:flex;gap:16px;flex-wrap:wrap">
+        <span>Error: <strong style="color:${ok?'#44ff88':'#ff6677'}">${nd.toFixed(5)}</strong></span>
+        <span>Threshold: <strong style="color:#ffcc44">${thresh} (${kpm.vis?'visible':'hidden'})</strong></span>
+        <span style="color:#445">${px}px / ${diag}px diag</span>
+        ${!ok?'<span style="color:#bb99ff">→ Yellow sphere = true GT position</span>':''}
+      </div>
+    </div>${ok?'<div style="font-size:28px;flex-shrink:0">🎯</div>':''}`;
+}
+
+function updateUI(){
+  const ok=Object.values(results).filter(r=>r.ok).length;
+  const err=Object.values(results).filter(r=>!r.ok).length;
+  const tot=Object.keys(results).length;
+  const acc=tot>0?Math.round(ok/tot*100):0;
+  document.getElementById('cnt-ok').textContent=`✓ ${ok}`;
+  document.getElementById('cnt-err').textContent=`✗ ${err}`;
+  document.getElementById('cnt-pend').textContent=`○ ${42-tot}`;
+  document.getElementById('sc-ok').textContent=ok;
+  document.getElementById('sc-err').textContent=err;
+  document.getElementById('sc-tot').textContent=`${tot} / 42`;
+  document.getElementById('sc-acc').textContent=tot?`${acc}%`:'–';
+  document.getElementById('pok').style.width=`${ok/42*100}%`;
+  document.getElementById('ptot').style.width=`${tot/42*100}%`;
+  KP_META.forEach(kpm=>{
+    const row=document.querySelector(`.kpr[data-id="${kpm.id}"]`);
+    if(!row)return;
+    const badge=row.querySelector('.badge');
+    const res=results[kpm.id];
+    badge.className='badge'+(res?(res.ok?' ok':' err'):'');
+    badge.textContent=res?(res.ok?'✓':'✗'):kpm.id;
+    row.style.borderLeftColor=res?(res.ok?'#44ff8855':'#ff446655'):'transparent';
+    row.querySelector('.kpn').style.color=(kpm.id===selKP)?'#00e5ff':'#bbb';
+  });
+  const rb=document.getElementById('reg-breakdown');
+  rb.innerHTML=Object.entries(RNMS).map(([code,label])=>{
+    const kpsR=KP_META.filter(k=>k.reg===code);
+    const done=kpsR.filter(k=>results[k.id]?.ok).length;
+    const all=done===kpsR.length&&done>0;
+    return `<div class="regrow" onclick="jumpReg('${code}')" style="border-color:${all?'#446644':'#0d0d1e'};background:${all?'#061a0a':'transparent'}"><span style="color:${RCOL[code]}">${label}</span><span style="color:${all?'#44ff88':'#445566'}">${done}/${kpsR.length}</span></div>`;
+  }).join('');
+}
+
+function buildKPList(){
+  document.getElementById('kplist').innerHTML=KP_META.map(kpm=>`
+    <div class="kpr${kpm.id===selKP?' sel':''}" data-id="${kpm.id}" onclick="selectKP(${kpm.id})">
+      <div class="badge">${kpm.id}</div>
+      <div style="overflow:hidden;flex:1;min-width:0">
+        <div class="kpn" style="font-size:10px;color:${kpm.id===selKP?'#00e5ff':'#bbb'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${kpm.name}</div>
+        <div style="font-size:8px;color:${kpm.vis?'#27ae60':'#9b59b6'}">${kpm.vis?'≤.008 VIS':'≤.016 HID'}</div>
+      </div>
+    </div>`).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONTROLS
+// ═══════════════════════════════════════════════════════════════════════════════
+function switchPose(pose){
+  curPose=pose;
+  ['standing','sitting','lying','running'].forEach(p=>{
+    document.getElementById(`pb-${p}`).classList.toggle('active',p===pose);
+  });
+  buildScene(pose);
+  const fb=document.getElementById('feedback');
+  fb.style.background='#050510'; fb.style.borderTopColor='#1a1a3a';
+  fb.innerHTML='<div style="color:#2a2a4a;font-size:10px">Pose changed — all placements reset. Select a keypoint and start annotating.</div>';
+}
+
+function snapAngle(deg){
+  snapTarget=(deg*Math.PI/180);
+  autoRot=false;
+  document.getElementById('btnRot').textContent='⊙ Manual';
+  document.getElementById('btnRot').classList.remove('on');
+}
+
+function toggleRot(){
+  autoRot=!autoRot; snapTarget=null;
+  const btn=document.getElementById('btnRot');
+  btn.textContent=autoRot?'⟳ Rotate':'⊙ Manual';
+  btn.classList.toggle('on',autoRot);
+}
+
+function prevKP(){selectKP(Math.max(1,selKP-1))}
+function nextKP(){selectKP(Math.min(42,selKP+1))}
+function jumpReg(code){const f=KP_META.filter(k=>k.reg===code).find(k=>!results[k.id]?.ok)||KP_META.find(k=>k.reg===code);if(f)selectKP(f.id)}
+
+function resetAll(){
+  results={};
+  Object.values(placedMeshes).forEach(m=>placed.remove(m));
+  placedMeshes={};
+  const fb=document.getElementById('feedback');
+  fb.style.background='#050510'; fb.style.borderTopColor='#1a1a3a';
+  fb.innerHTML='<div style="color:#2a2a4a;font-size:10px">Select a keypoint → rotate skeleton to any angle → click to place → get instant green/red feedback</div>';
+  buildKPList(); updateUI(); selectKP(1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MOUSE / TOUCH EVENTS
+// ═══════════════════════════════════════════════════════════════════════════════
+window.addEventListener('load',()=>{
+  buildKPList(); init3D(); selectKP(1); updateUI();
+
+  const mount=document.getElementById('mount');
+  mount.addEventListener('mousedown',e=>{isDrag=true;dragMoved=false;prevX=e.clientX;snapTarget=null;});
+  window.addEventListener('mousemove',e=>{
+    if(!isDrag)return;
+    const dx=e.clientX-prevX;
+    if(Math.abs(dx)>2){dragMoved=true;autoRot=false;
+      document.getElementById('btnRot').textContent='⊙ Manual';
+      document.getElementById('btnRot').classList.remove('on');}
+    rotY+=dx*.013; prevX=e.clientX;
+  });
+  window.addEventListener('mouseup',()=>{isDrag=false;});
+  mount.addEventListener('click',e=>{if(!dragMoved)placeKP(e.clientX,e.clientY);});
+
+  mount.addEventListener('touchstart',e=>{isDrag=true;dragMoved=false;prevX=e.touches[0].clientX;snapTarget=null;},{passive:true});
+  mount.addEventListener('touchmove',e=>{
+    if(!isDrag)return;
+    const dx=e.touches[0].clientX-prevX;
+    if(Math.abs(dx)>2){dragMoved=true;autoRot=false;}
+    rotY+=dx*.013; prevX=e.touches[0].clientX;
+  },{passive:true});
+  mount.addEventListener('touchend',e=>{
+    if(!dragMoved)placeKP(e.changedTouches[0].clientX,e.changedTouches[0].clientY);
+    isDrag=false;
+  });
+
+  const hint=document.getElementById('btnHint');
+  hint.addEventListener('mousedown',()=>{showHint=true;updateHints();});
+  hint.addEventListener('mouseup',()=>{showHint=false;updateHints();});
+  hint.addEventListener('mouseleave',()=>{showHint=false;updateHints();});
+  hint.addEventListener('touchstart',e=>{e.preventDefault();showHint=true;updateHints();},{passive:false});
+  hint.addEventListener('touchend',()=>{showHint=false;updateHints();});
+});
+</script>
+</body>
+</html>
